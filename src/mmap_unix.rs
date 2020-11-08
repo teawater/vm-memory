@@ -272,6 +272,11 @@ impl MmapRegion {
         }
         false
     }
+
+    /// Returns `true` if the region is hugetlbfs
+    pub fn is_hugetlbfs(&self) -> bool {
+        (self.flags & libc::MAP_HUGETLB) != 0
+    }
 }
 
 impl AsSlice for MmapRegion {
@@ -327,6 +332,9 @@ mod tests {
     use std::sync::Arc;
     use vmm_sys_util::tempfile::TempFile;
 
+    use std::ffi;
+    use std::{fs::File, os::unix::io::FromRawFd};
+
     // Adding a helper method to extract the errno within an Error::Mmap(e), or return a
     // distinctive value when the error is represented by another variant.
     impl Error {
@@ -352,6 +360,34 @@ mod tests {
             r.flags(),
             libc::MAP_ANONYMOUS | libc::MAP_NORESERVE | libc::MAP_PRIVATE
         );
+    }
+
+    #[test]
+    fn test_mmap_region_is_hugetlbfs() {
+        let r = MmapRegion::new(4096).unwrap();
+        assert_eq!(r.is_hugetlbfs(), false);
+
+        let res = unsafe {
+            libc::syscall(
+                libc::SYS_memfd_create,
+                &ffi::CString::new("ch_ram").unwrap(),
+                libc::MFD_HUGETLB | libc::MAP_HUGE_2MB as u32,
+            )
+        };
+        if res < 0 {
+            /* Linux kernel version older than 4.16 doesn't support MFD_HUGETLB */
+            return;
+        }
+        let f = unsafe { File::from_raw_fd(res as i32) };
+        f.set_len(2 * 1024 * 1024).unwrap();
+        let r = MmapRegion::build(
+            Some(FileOffset::new(f, 0)),
+            2 * 1024 * 1024,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_NORESERVE | libc::MAP_PRIVATE | libc::MAP_HUGETLB,
+        )
+        .unwrap();
+        assert_eq!(r.is_hugetlbfs(), true);
     }
 
     #[test]
