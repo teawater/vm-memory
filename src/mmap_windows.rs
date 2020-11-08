@@ -175,6 +175,11 @@ impl MmapRegion {
     pub fn file_offset(&self) -> Option<&FileOffset> {
         self.file_offset.as_ref()
     }
+
+    /// Windows doesn't have hugetlbfs.
+    pub fn is_hugetlbfs(&self) -> Option<bool> {
+        None
+    }
 }
 
 impl AsSlice for MmapRegion {

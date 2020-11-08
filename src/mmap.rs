@@ -404,6 +404,10 @@ impl GuestMemoryRegion for GuestRegionMmap {
         let slice = self.mapping.get_slice(offset.raw_value() as usize, count)?;
         Ok(slice)
     }
+
+    fn is_hugetlbfs(&self) -> Option<bool> {
+        self.mapping.is_hugetlbfs()
+    }
 }
 
 /// [`GuestMemory`](trait.GuestMemory.html) implementation that mmaps the guest's memory
