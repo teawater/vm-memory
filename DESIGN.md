@@ -122,6 +122,18 @@ let buf = &mut [0u8; 5];
 let result = guest_memory_mmap.write(buf, addr);
 ```
 
+One of the responsibilities of `GuestRegionMmap` is to provide an API
+`is_hugetlbfs` to show if the region is based on the HugeTLBFS.
+Linux releases normal pages and HugeTLBFS pages requiring different
+operations.
+
+```
+let addr = GuestAddress(0x1000);
+let mem = GuestMemoryMmap::from_ranges(&[(addr, 0x1000)]).unwrap();
+let r = mem.find_region(addr).unwrap();
+assert_eq!(r.is_hugetlbfs(), false);
+```
+
 ### Utilities and Helpers
 
 The following utilities and helper traits/macros are imported from the
