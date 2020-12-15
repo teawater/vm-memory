@@ -290,6 +290,46 @@ impl<'a> VolatileSlice<'a> {
         self.size == 0
     }
 
+    /// Divides one slice into two at an index.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use vm_memory::VolatileMemory;
+    /// let mut mem = [0u8; 32];
+    /// let mem_ref = &mut mem[..];
+    /// let vslice = mem_ref.get_slice(0, 32).unwrap();
+    /// let (start, end) = vslice.split_at(8).unwrap();
+    /// ```
+    pub fn split_at(self, mid: usize) -> Result<(VolatileSlice<'a>, VolatileSlice<'a>)> {
+        let end = self.offset(mid)?;
+        let start = unsafe {
+            // safe because self.offset() already checked the bounds
+            VolatileSlice::new(self.addr, mid)
+        };
+        Ok((start, end))
+    }
+
+    /// Returns a subslice of this [`VolatileSlice`](struct.VolatileSlice.html) starting at
+    /// `offset` with `count` length.
+    ///
+    /// The returned subslice is a copy of this slice with the address increased by `offset` bytes
+    /// and the size set to `count` bytes.
+    pub fn subslice(self, offset: usize, count: usize) -> Result<VolatileSlice<'a>> {
+        let mem_end = compute_offset(offset, count)?;
+        if mem_end > self.len() {
+            return Err(Error::OutOfBounds { addr: mem_end });
+        }
+        unsafe {
+            // This is safe because the pointer is range-checked by compute_end_offset, and
+            // the lifetime is the same as the original slice.
+            Ok(VolatileSlice::new(
+                (self.as_ptr() as usize + offset) as *mut u8,
+                count,
+            ))
+        }
+    }
+
     /// Returns a subslice of this [`VolatileSlice`](struct.VolatileSlice.html) starting at
     /// `offset`.
     ///
@@ -1380,6 +1420,38 @@ mod tests {
     }
 
     #[test]
+    fn slice_subslice() {
+        let mem = VecMem::new(100);
+        let slice = mem.get_slice(0, 100).unwrap();
+        assert!(slice.write(&[1; 80], 10).is_ok());
+
+        assert!(slice.subslice(0, 0).is_ok());
+        assert!(slice.subslice(0, 101).is_err());
+
+        assert!(slice.subslice(99, 0).is_ok());
+        assert!(slice.subslice(99, 1).is_ok());
+        assert!(slice.subslice(99, 2).is_err());
+
+        assert!(slice.subslice(100, 0).is_ok());
+        assert!(slice.subslice(100, 1).is_err());
+
+        assert!(slice.subslice(101, 0).is_err());
+        assert!(slice.subslice(101, 1).is_err());
+
+        assert!(slice.subslice(std::usize::MAX, 2).is_err());
+        assert!(slice.subslice(2, std::usize::MAX).is_err());
+
+        let maybe_offset_slice = slice.subslice(10, 80);
+        assert!(maybe_offset_slice.is_ok());
+        let offset_slice = maybe_offset_slice.unwrap();
+        assert_eq!(offset_slice.len(), 80);
+
+        let mut buf = [0; 80];
+        assert!(offset_slice.read(&mut buf, 0).is_ok());
+        assert_eq!(&buf[0..80], &[1; 80][0..80]);
+    }
+
+    #[test]
     fn slice_offset() {
         let mem = VecMem::new(100);
         let slice = mem.get_slice(0, 100).unwrap();
@@ -1701,5 +1773,26 @@ mod tests {
         let s = a.as_volatile_slice();
 
         crate::bytes::tests::check_atomic_accesses(s, 0, 0x1000);
+    }
+
+    #[test]
+    fn split_at() {
+        let mut mem = [0u8; 32];
+        let mem_ref = &mut mem[..];
+        let vslice = mem_ref.get_slice(0, 32).unwrap();
+        let (start, end) = vslice.split_at(8).unwrap();
+        assert_eq!(start.len(), 8);
+        assert_eq!(end.len(), 24);
+        let (start, end) = vslice.split_at(0).unwrap();
+        assert_eq!(start.len(), 0);
+        assert_eq!(end.len(), 32);
+        let (start, end) = vslice.split_at(31).unwrap();
+        assert_eq!(start.len(), 31);
+        assert_eq!(end.len(), 1);
+        let (start, end) = vslice.split_at(32).unwrap();
+        assert_eq!(start.len(), 32);
+        assert_eq!(end.len(), 0);
+        let err = vslice.split_at(33).unwrap_err();
+        assert_matches!(err, Error::OutOfBounds { addr: _ })
     }
 }
